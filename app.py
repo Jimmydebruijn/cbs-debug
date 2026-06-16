@@ -1,68 +1,81 @@
 import streamlit as st
 import requests
 
-st.title("🔍 CBS 85064NED Debug v3 — Grote fetch")
+st.title("🔍 CBS 85064NED Debug v4 — Volledige fetch")
 
 BASE = "https://opendata.cbs.nl/ODataApi/OData/85064NED"
 
-st.header("1. Totaal aantal rijen in tabel")
-r = requests.get(f"{BASE}/TypedDataSet?$format=json&$inlinecount=allpages&$top=1", timeout=30)
-st.write(f"Status: {r.status_code}")
-if r.status_code == 200:
-    d = r.json()
-    st.write(f"odata.count: {d.get('odata.count', 'niet aanwezig')}")
-    st.write(f"Alle keys in response: {list(d.keys())}")
-
-st.header("2. Fetch met $top=10000 — hoeveel rijen komen terug?")
-if st.button("Laad alles ($top=10000)"):
-    with st.spinner("Laden..."):
-        r2 = requests.get(
+st.header("1. Fetch $top=50000 — alle data")
+if st.button("Laad alles ($top=50000) — kan 30-60 sec duren"):
+    with st.spinner("Laden... (dit kan even duren)"):
+        r = requests.get(
             f"{BASE}/TypedDataSet?$format=json"
             f"&$select=RegioS,Perioden,MediaanGestandaardiseerdInkomen_4"
-            f"&$top=10000",
-            timeout=60
+            f"&$top=50000",
+            timeout=120
         )
-    st.write(f"Status: {r2.status_code}")
-    if r2.status_code == 200:
-        rows = r2.json().get("value", [])
-        st.write(f"Totaal rijen ontvangen: {len(rows)}")
-        # Toon unieke perioden
-        perioden = set(r.get("Perioden","").strip() for r in rows)
-        st.write(f"Perioden: {perioden}")
-        # Zoek postcodes
-        pcs = [r for r in rows if r.get("RegioS","").strip().startswith("PO")]
+    st.write(f"Status: {r.status_code}")
+    if r.status_code == 200:
+        rows = r.json().get("value", [])
+        st.write(f"Totaal rijen: {len(rows)}")
+        pcs = [r for r in rows
+               if str(r.get("RegioS","")).strip().startswith("PC")
+               or str(r.get("RegioS","")).strip().startswith("PO")
+               or str(r.get("RegioS","")).strip()[:4].isdigit()]
         st.write(f"Postcode rijen: {len(pcs)}")
         if pcs:
             st.write(f"Eerste postcode rij: {pcs[0]}")
             st.write(f"RegioS formaat: `{repr(pcs[0].get('RegioS',''))}`")
-            # Zoek specifiek 8251
-            pc8251 = [r for r in pcs if "8251" in r.get("RegioS","")]
-            st.write(f"Rijen met 8251: {len(pc8251)}")
-            if pc8251:
-                st.success(f"✅ Gevonden: {pc8251[0]}")
-        else:
-            # Toon laatste 5 rijen
-            st.write("Geen postcodes — laatste 5 rijen:")
-            for row in rows[-5:]:
-                st.write(f"RegioS=`{repr(row.get('RegioS',''))}` Perioden=`{row.get('Perioden','')}`")
-    else:
-        st.error(f"Fout: {r2.text[:200]}")
-
-st.header("3. Test UntypedDataSet met $top=10000")
-if st.button("Laad UntypedDataSet"):
-    with st.spinner("Laden..."):
-        r3 = requests.get(
-            f"{BASE}/UntypedDataSet?$format=json&$top=10000",
-            timeout=60
-        )
-    st.write(f"Status: {r3.status_code}")
-    if r3.status_code == 200:
-        rows = r3.json().get("value", [])
-        st.write(f"Totaal rijen: {len(rows)}")
-        pcs = [r for r in rows if str(r.get("RegioS","")).strip().startswith("PO")]
-        st.write(f"Postcode rijen: {len(pcs)}")
-        if pcs:
-            st.write(f"Eerste: {pcs[0]}")
             pc8251 = [r for r in pcs if "8251" in str(r.get("RegioS",""))]
             if pc8251:
                 st.success(f"✅ 8251 gevonden: {pc8251[0]}")
+        # Toon rijen 9990-10010 om de grens gemeente/postcode te zien
+        st.write("Rijen 9990-10010:")
+        for row in rows[9990:10010]:
+            st.write(f"RegioS=`{repr(row.get('RegioS',''))}` Perioden=`{row.get('Perioden','')}`")
+    else:
+        st.error(r.text[:300])
+
+st.header("2. Bekijk rijen 10000-10020")
+if st.button("Fetch rijen 10000-10020 via $skip"):
+    r2 = requests.get(
+        f"{BASE}/TypedDataSet?$format=json"
+        f"&$select=RegioS,Perioden"
+        f"&$top=20&$skip=10000",
+        timeout=30
+    )
+    st.write(f"Status: {r2.status_code}")
+    if r2.status_code == 200:
+        for row in r2.json().get("value", []):
+            st.write(f"RegioS=`{repr(row.get('RegioS',''))}` Perioden=`{row.get('Perioden','')}`")
+    else:
+        st.error(f"Status 500 — $skip werkt niet zonder filter")
+        st.write("Probeer anders...")
+
+st.header("3. Alleen meest recente jaar — filter op Perioden anders")
+# Probeer Perioden filter via substring
+if st.button("Filter via substringof Perioden"):
+    r3 = requests.get(
+        f"{BASE}/TypedDataSet?$format=json"
+        f"&$filter=substringof('2020',Perioden)"
+        f"&$select=RegioS,Perioden,MediaanGestandaardiseerdInkomen_4"
+        f"&$top=20",
+        timeout=30
+    )
+    st.write(f"Status: {r3.status_code}")
+    if r3.status_code == 200:
+        rows = r3.json().get("value", [])
+        st.write(f"Rijen: {len(rows)}")
+        for row in rows[:5]:
+            st.write(f"RegioS=`{repr(row.get('RegioS',''))}` val={row.get('MediaanGestandaardiseerdInkomen_4')}")
+
+st.header("4. Filter Perioden eq zonder quotes variant")
+for periode_fmt in ["'2020JJ00'", "2020JJ00", "'2020'"]:
+    r4 = requests.get(
+        f"{BASE}/TypedDataSet?$format=json"
+        f"&$filter=Perioden eq {periode_fmt}"
+        f"&$select=RegioS,Perioden,MediaanGestandaardiseerdInkomen_4"
+        f"&$top=3",
+        timeout=15
+    )
+    st.write(f"Periode filter `{periode_fmt}`: Status {r4.status_code}, rijen: {len(r4.json().get('value',[]) if r4.status_code==200 else [])}")
