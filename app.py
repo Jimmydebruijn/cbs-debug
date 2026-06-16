@@ -1,56 +1,58 @@
 import streamlit as st
 import requests
 
-st.title("🔍 CBS 85064NED Debug v5 — substringof combinatie")
+st.title("🔍 CBS 85064NED Debug v6 — Exacte RegioS waarden")
 
 BASE = "https://opendata.cbs.nl/ODataApi/OData/85064NED"
 
-st.header("1. substringof Perioden + substringof RegioS")
+st.header("1. Alle RegioS waarden in 2020 data ($top=100)")
+r = requests.get(
+    f"{BASE}/TypedDataSet?$format=json"
+    f"&$filter=substringof('2020',Perioden)"
+    f"&$select=RegioS,Perioden,MediaanGestandaardiseerdInkomen_4"
+    f"&$top=100",
+    timeout=30
+)
+st.write(f"Status: {r.status_code}, Rijen: {len(r.json().get('value',[]))}")
+if r.status_code == 200:
+    rows = r.json().get("value", [])
+    st.write(f"Totaal rijen: {len(rows)}")
+    # Toon ALLE unieke RegioS waarden
+    all_regio = set(repr(row.get("RegioS","")) for row in rows)
+    st.write("Alle unieke RegioS waarden:")
+    for regio in sorted(all_regio):
+        st.code(regio)
 
-combos = [
-    ("substringof('2020',Perioden) and substringof('PO',RegioS)", "PO prefix"),
-    ("substringof('2020',Perioden) and substringof('PC',RegioS)", "PC prefix"),
-    ("substringof('2020',Perioden) and substringof('8251',RegioS)", "8251 direct"),
-]
+st.header("2. substringof met top=500")
+r2 = requests.get(
+    f"{BASE}/TypedDataSet?$format=json"
+    f"&$filter=substringof('2020',Perioden)"
+    f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4"
+    f"&$top=500",
+    timeout=30
+)
+st.write(f"Status: {r2.status_code}")
+if r2.status_code == 200:
+    rows2 = r2.json().get("value", [])
+    st.write(f"Totaal rijen: {len(rows2)}")
+    # Toon laatste 10 — wat is de laatste RegioS?
+    st.write("Laatste 10 RegioS waarden:")
+    for row in rows2[-10:]:
+        st.code(repr(row.get("RegioS","")))
+    # Zoek patronen
+    prefixes = set(row.get("RegioS","")[:2].strip() for row in rows2)
+    st.write(f"Unieke 2-teken prefixes: {prefixes}")
 
-for filt, label in combos:
-    r = requests.get(
+st.header("3. Zoek postcode 8251 via substringof RegioS direct")
+for zoekterm in ["8251", "8252", "825"]:
+    r3 = requests.get(
         f"{BASE}/TypedDataSet?$format=json"
-        f"&$filter={filt}"
-        f"&$select=RegioS,Perioden,MediaanGestandaardiseerdInkomen_4"
+        f"&$filter=substringof('{zoekterm}',RegioS)"
+        f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4"
         f"&$top=5",
-        timeout=20
+        timeout=15
     )
-    st.write(f"**{label}** — Status: {r.status_code}")
-    if r.status_code == 200:
-        rows = r.json().get("value", [])
-        st.write(f"  Rijen: {len(rows)}")
-        for row in rows[:3]:
-            st.write(f"  RegioS=`{repr(row.get('RegioS',''))}` val={row.get('MediaanGestandaardiseerdInkomen_4')}")
-    else:
-        st.write(f"  Fout: {r.text[:100]}")
-
-st.header("2. Als PO werkt — haal alle postcodes op")
-if st.button("Haal alle PO postcodes 2020 op"):
-    with st.spinner("Laden..."):
-        r2 = requests.get(
-            f"{BASE}/TypedDataSet?$format=json"
-            f"&$filter=substringof('2020',Perioden) and substringof('PO',RegioS)"
-            f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4,GemiddeldGestandaardiseerdInkomen_3"
-            f"&$top=10000",
-            timeout=60
-        )
-    st.write(f"Status: {r2.status_code}")
-    if r2.status_code == 200:
-        rows = r2.json().get("value", [])
-        st.write(f"Totaal: {len(rows)} rijen")
-        if rows:
-            st.write(f"Eerste: {rows[0]}")
-            st.write(f"Laatste: {rows[-1]}")
-            pc8251 = [r for r in rows if "8251" in str(r.get("RegioS",""))]
-            if pc8251:
-                st.success(f"✅ 8251 gevonden: {pc8251[0]}")
-            else:
-                st.warning("8251 niet gevonden")
-    else:
-        st.error(r2.text[:200])
+    st.write(f"substringof('{zoekterm}',RegioS): Status {r3.status_code}, rijen: {len(r3.json().get('value',[]) if r3.status_code==200 else [])}")
+    if r3.status_code == 200 and r3.json().get("value"):
+        for row in r3.json()["value"][:3]:
+            st.code(f"RegioS={repr(row.get('RegioS',''))} val={row.get('MediaanGestandaardiseerdInkomen_4')}")
