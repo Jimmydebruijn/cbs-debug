@@ -1,54 +1,74 @@
 import streamlit as st
 import requests
 
-st.title("🔍 Alternatieve CBS inkomen tabellen")
+st.title("🔍 Debug v8 — 84639NED postcode format")
 
-# Test alternatieve tabellen die inkomen per postcode hebben
-tabellen = [
-    ("84639NED", "Inkomen per postcode (ouder)"),
-    ("85064NED", "Inkomen personen postcode (huidig)"),
-    ("83765NED", "Kerncijfers postcode"),
-    ("85318NED", "Kerncijfers wijken buurten 2023"),
-    ("85984NED", "Kerncijfers wijken buurten 2022"),
-]
+# 84639NED werkt met PC filter — zoek het exacte format
+BASE = "https://opendata.cbs.nl/ODataApi/OData/84639NED"
 
-for tabel_id, omschrijving in tabellen:
-    BASE = f"https://opendata.cbs.nl/ODataApi/OData/{tabel_id}"
-
-    # Check of tabel bestaat
-    r = requests.get(f"{BASE}/TypedDataSet?$format=json&$top=1", timeout=10)
-    if r.status_code != 200:
-        st.write(f"❌ **{tabel_id}** ({omschrijving}) — Status {r.status_code}")
-        continue
-
+st.header("1. Exacte RegioS waarde voor postcodes in 84639NED")
+r = requests.get(
+    f"{BASE}/TypedDataSet?$format=json"
+    f"&$filter=substringof('PC',RegioS)"
+    f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4"
+    f"&$top=5",
+    timeout=15
+)
+st.write(f"Status: {r.status_code}")
+if r.status_code == 200:
     rows = r.json().get("value", [])
-    if not rows:
-        st.write(f"⚠️ **{tabel_id}** — Geen rijen")
-        continue
+    st.write(f"Rijen: {len(rows)}")
+    for row in rows:
+        st.code(f"RegioS={repr(row.get('RegioS',''))} val={row.get('MediaanGestandaardiseerdInkomen_4')}")
 
-    first = rows[0]
-    regio = first.get("RegioS", first.get("Postcode", first.get("WijkenEnBuurten", "?")))
-    st.write(f"✅ **{tabel_id}** ({omschrijving})")
-    st.write(f"   Eerste RegioS/key: `{repr(regio)}`")
+st.header("2. Filter op postcode 8251 in 84639NED")
+for zoek in ["PC8251", "8251"]:
+    r2 = requests.get(
+        f"{BASE}/TypedDataSet?$format=json"
+        f"&$filter=substringof('{zoek}',RegioS)"
+        f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4,GemiddeldGestandaardiseerdInkomen_3"
+        f"&$top=3",
+        timeout=15
+    )
+    st.write(f"substringof('{zoek}',RegioS): Status {r2.status_code}")
+    if r2.status_code == 200 and r2.json().get("value"):
+        for row in r2.json()["value"]:
+            st.success(f"✅ RegioS={repr(row.get('RegioS',''))} mediaan={row.get('MediaanGestandaardiseerdInkomen_4')} gem={row.get('GemiddeldGestandaardiseerdInkomen_3')}")
 
-    # Check of inkomen kolommen beschikbaar zijn
-    props = requests.get(f"{BASE}/DataProperties?$format=json", timeout=10)
-    if props.status_code == 200:
-        ink_cols = [p["Key"] for p in props.json().get("value",[])
-                   if any(w in p.get("Title","").lower() for w in ["inkomen","income","besteedbaar","mediaan"])]
-        if ink_cols:
-            st.write(f"   💰 Inkomen kolommen: {ink_cols[:5]}")
+st.header("3. Perioden in 84639NED")
+r3 = requests.get(f"{BASE}/Perioden?$format=json", timeout=10)
+if r3.status_code == 200:
+    perioden = r3.json().get("value", [])
+    st.write(f"Perioden: {[p['Key'] for p in perioden]}")
+    st.write(f"Laatste: {perioden[-1]['Key'] if perioden else '?'}")
 
-    # Test postcode filter
-    for prefix in ["PC", "PO", "BU", "WK"]:
-        r2 = requests.get(
-            f"{BASE}/TypedDataSet?$format=json"
-            f"&$filter=substringof('{prefix}',RegioS)"
-            f"&$top=1",
-            timeout=10
-        )
-        if r2.status_code == 200 and r2.json().get("value"):
-            test_regio = r2.json()["value"][0].get("RegioS","")
-            st.write(f"   🎯 Filter '{prefix}' werkt! RegioS=`{repr(test_regio)}`")
-            break
-    st.divider()
+st.header("4. 83765NED — exact format postcode")
+BASE2 = "https://opendata.cbs.nl/ODataApi/OData/83765NED"
+r4 = requests.get(
+    f"{BASE2}/TypedDataSet?$format=json"
+    f"&$filter=substringof('PC',RegioS)"
+    f"&$select=RegioS,GemiddeldInkomenPerInwoner_66"
+    f"&$top=5",
+    timeout=15
+)
+st.write(f"83765NED Status: {r4.status_code}")
+if r4.status_code == 200:
+    for row in r4.json().get("value",[])[:3]:
+        st.code(f"RegioS={repr(row.get('RegioS',''))} val={row.get('GemiddeldInkomenPerInwoner_66')}")
+
+st.header("5. 84639NED — haal 8251 t/m 8254 op in één query")
+pcs = ["PC8251", "PC8252", "PC8253", "PC8254"]
+filter_str = " or ".join(f"substringof('{pc}',RegioS)" for pc in pcs)
+r5 = requests.get(
+    f"{BASE}/TypedDataSet?$format=json"
+    f"&$filter={filter_str}"
+    f"&$select=RegioS,MediaanGestandaardiseerdInkomen_4,GemiddeldGestandaardiseerdInkomen_3"
+    f"&$top=20",
+    timeout=15
+)
+st.write(f"Multi-postcode query: Status {r5.status_code}")
+if r5.status_code == 200:
+    rows5 = r5.json().get("value", [])
+    st.write(f"Rijen: {len(rows5)}")
+    for row in rows5:
+        st.write(f"RegioS={repr(row.get('RegioS',''))} mediaan={row.get('MediaanGestandaardiseerdInkomen_4')}")
